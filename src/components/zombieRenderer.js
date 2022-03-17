@@ -34,17 +34,19 @@ const ZombieRenderer = ({ zombie = null, size = 200, style }) => {
   };
 
   const zombieStyle = {
-    width: "100%",
-    height: "100%",
+    width:  size,
+    height: size,
     position: "absolute",
   };
 
   return (
     <div
       style={{
-        minWidth: size,
-        minHeight: size,
-        background: "blue",
+        // minWidth: size,
+        // minHeight: size,
+        width:  "25%",
+        height: size,
+        // background: "blue",
         position: "relative",
         ...style,
       }}
