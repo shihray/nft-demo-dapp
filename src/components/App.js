@@ -14,6 +14,7 @@ import Loading from "./Loading/Loading";
 import Navbar from "./Navbar/Navbar";
 import MyCryptoBoys from "./MyCryptoBoys/MyCryptoBoys";
 import Queries from "./Queries/Queries";
+import MarketClose from "./MarketClose/MarketClose";
 
 const ipfsClient = require("ipfs-http-client");
 const ipfs = ipfsClient({
@@ -43,6 +44,7 @@ class App extends Component {
             colorIsUsed: false,
             colorsUsed: [],
             lastMintTime: null,
+            isMarketOpen: false,
         };
     }
 
@@ -156,6 +158,10 @@ class App extends Component {
                 );
                 this.setState({ marketContract: marketContract });
                 this.setState({ marketContractAddress: marketNetworkData.address });
+
+                // marketOpen
+                const isOpen = await marketContract.methods.isMarketOpen().call();
+                this.setState({ isMarketOpen: isOpen });
 
                 for (var i = 1; i <= this.state.cryptoBoysCount; i++) {
                     const cryptoBoy = await marketContract.methods.allCryptoBoys(i).call();
@@ -331,6 +337,8 @@ class App extends Component {
                 <ContractNotDeployed />
             ) : this.state.loading ? (
                 <Loading />
+            ) : !this.state.isMarketOpen ? (
+                <MarketClose />
             ) : (
                 <>
                 <HashRouter basename="/">
@@ -385,7 +393,10 @@ class App extends Component {
                     <Route
                         path="/queries"
                         render={() => (
-                            <Queries cryptoBoysContract={this.state.cryptoBoysContract} />
+                            <Queries 
+                                cryptoBoysContract={this.state.cryptoBoysContract}
+                                marketContract={this.state.marketContract} 
+                            />
                         )}
                     />
                 </HashRouter>

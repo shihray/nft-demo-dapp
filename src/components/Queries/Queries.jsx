@@ -8,9 +8,7 @@ const Queries = (props) => {
   const [tokenIdForMetadata, setTokenIdForMetadata] = useState("");
   const [tokenMetadata, setTokenMetadata] = useState("");
   const [tokenMetadataLink, setTokenMetadataLink] = useState("");
-  const [tokenIdForMetadataNotFound, setTokenIdForMetadataNotFound] = useState(
-    false
-  );
+  const [tokenIdForMetadataNotFound, setTokenIdForMetadataNotFound] = useState(false);
 
   const getTokenOwner = async (e) => {
     e.preventDefault();

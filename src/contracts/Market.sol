@@ -41,6 +41,8 @@ contract Market is ERC721Enumerable, Ownable {
         bool forSale;
     }
     // Feature
+    bool public isMarketOpen = true;
+    bool public emergencyDelisting = false;
 
     // initialize contract while deployment with contract's collection name and token
     constructor() ERC721("Taiwan Crypto Market", "TCM") {
@@ -48,6 +50,18 @@ contract Market is ERC721Enumerable, Ownable {
         collectionNameSymbol = symbol();
 
         royaltyInterface = IERC2981Royalties(address(this));
+    }
+
+    function openMarket() external onlyOwner {
+        isMarketOpen = true;
+    }
+
+    function closeMarket() external onlyOwner {
+        isMarketOpen = false;
+    }
+
+    function allowEmergencyDelisting() external onlyOwner {
+        emergencyDelisting = true;
     }
 
     function adjustFees(uint256 newDistFee, uint256 newMarketFee) external onlyOwner {
@@ -58,6 +72,16 @@ contract Market is ERC721Enumerable, Ownable {
         marketFeePercent = newMarketFee;
     }
 
+    function emergencyDelist(address nftAddr, uint256 _tokenId) external {
+        require(emergencyDelisting && !isMarketOpen, "Only in emergency.");
+        require(_tokenId <= cryptoBoyCounter, "Invalid CryptoBoy");
+
+        CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
+
+        CryptoBoys(nftAddr).transferFrom(address(this), cryptoboy.currentOwner, cryptoboy.tokenId);
+    }
+
+    // NFT
     function appendCryptoBoy(
         uint256 tokenId,
         string memory name,
@@ -69,7 +93,7 @@ contract Market is ERC721Enumerable, Ownable {
         uint256 numOfTransfers,
         bool forSale
     ) public {
-
+        require(isMarketOpen, "Market is closed.");
         CryptoBoy memory newCryptoBoy = CryptoBoy(tokenId, name, uri, mintedBy, currOwner, prevOwner, price, numOfTransfers, forSale);
 
         allCryptoBoys[tokenId] = newCryptoBoy;
@@ -79,6 +103,7 @@ contract Market is ERC721Enumerable, Ownable {
 
     // by a token by passing in the token's id
     function buyToken(address nftAddr, uint256 _tokenId) public payable {
+        require(isMarketOpen, "Market is closed.");
         require(msg.sender != address(0));
         // require(_exists(_tokenId));
         
@@ -91,20 +116,27 @@ contract Market is ERC721Enumerable, Ownable {
         require(msg.value >= cryptoboy.price, "Price Err");
         require(cryptoboy.forSale, "Not ForSale Err");
 
+        (address originalMinter, uint256 royaltyAmount) = royaltyInterface.royaltyInfo(_tokenId, cryptoboy.price);
+        uint256 community_cut = (cryptoboy.price * communityFeePercent) / 100;
+        uint256 market_cut = (cryptoboy.price * marketFeePercent) / 100;
+        uint256 holder_cut = cryptoboy.price - royaltyAmount - community_cut - market_cut;
+
         // _transfer(tokenOwner, msg.sender, _tokenId);
         CryptoBoys(nftAddr).transferToken(tokenOwner, msg.sender, _tokenId);
 
         address sendTo = cryptoboy.currentOwner;
-        payable(sendTo).transfer(msg.value);
+        // payable(sendTo).transfer(msg.value);
         cryptoboy.previousOwner = cryptoboy.currentOwner;
         cryptoboy.currentOwner = msg.sender;
         cryptoboy.numberOfTransfers += 1;
         allCryptoBoys[_tokenId] = cryptoboy;
 
-
+        payable(sendTo).transfer(holder_cut);    
+        payable(originalMinter).transfer(royaltyAmount);
     }
 
     function changeTokenPrice(uint256 _tokenId, uint256 _newPrice) public {
+        require(isMarketOpen, "Market is closed.");
         require(msg.sender != address(0));
 
         CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
@@ -116,23 +148,21 @@ contract Market is ERC721Enumerable, Ownable {
 
     // switch between set for sale and set not for sale
     function toggleForSale(uint256 _tokenId) public {
-        // require caller of the function is not an empty address
+        require(isMarketOpen, "Market is closed.");
         require(msg.sender != address(0));
-        // require that token should exist
-        require(_exists(_tokenId));
-        // get the token's owner
-        address tokenOwner = ownerOf(_tokenId);
-        // check that token's owner should be equal to the caller of the function
-        require(tokenOwner == msg.sender);
-        // get that token from all crypto boys mapping and create a memory of it defined as (struct => CryptoBoy)
+        // require(_exists(_tokenId));
+
         CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
-        // if token's forSale is false make it true and vice versa
+
+        address tokenOwner = cryptoboy.currentOwner;
+        require(tokenOwner == msg.sender);
+        
         if(cryptoboy.forSale) {
             cryptoboy.forSale = false;
         } else {
             cryptoboy.forSale = true;
         }
-        // set and update that token in the mapping
+        
         allCryptoBoys[_tokenId] = cryptoboy;
     }
 

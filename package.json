@@ -1,9 +1,8 @@
 {
-  "name": "cryptoboys",
+  "name": "nft-demo-dapp",
   "version": "0.1.0",
-  "description": "Crypto Boys NFT Marketplace",
-  "author": "devpavan04",
-  "homepage": "https://devpavan04.github.io/cryptoboys-nft-marketplace",
+  "description": "Crypto Marketplace",
+  "author": "Ray",
   "dependencies": {
     "@openzeppelin/contracts": "^4.5.0",
     "babel-polyfill": "6.26.0",
