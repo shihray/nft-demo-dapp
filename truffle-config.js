@@ -1,8 +1,9 @@
 require("babel-register");
 require("babel-polyfill");
 
-var HDWalletProvider = require("truffle-hdwallet-provider");
-var mnemonic = "cheese maid advance movie involve rookie loud sword boil element jaguar pigeon";
+var HDWalletProvider = require("@truffle/hdwallet-provider");
+
+const mnemonic = require("./secrets.json").mnemonic;
 
 module.exports = {
     networks: {
@@ -12,11 +13,25 @@ module.exports = {
             network_id: "*", // Match any network id
         },
         rinkeby: {
-            provider: function() { 
-             return new HDWalletProvider(mnemonic, "https://rinkeby.infura.io/v3/df683e29619a4abab94254e23193cee7");
-            },
+            provider:  () => new HDWalletProvider(mnemonic, "https://rinkeby.infura.io/v3/df683e29619a4abab94254e23193cee7"),
             network_id: 4,
-        }
+        },
+        bscTestnet: {
+            provider: () => new HDWalletProvider(mnemonic, `https://speedy-nodes-nyc.moralis.io/dc3113df767f15c67e04d1df/bsc/testnet`),
+            network_id: 97,       // bscTestnet's id
+            gas: 5500000,         // bscTestnet has a lower block limit than mainnet
+            confirmations: 10,    // # of confs to wait between deployments. (default: 0)
+            timeoutBlocks: 200,   // # of blocks before a deployment times out  (minimum/default: 50)
+            skipDryRun: true      // Skip dry run before migrations? (default: false for public nets )
+        },
+        ropsten: {
+            provider: () => new HDWalletProvider(mnemonic, `https://speedy-nodes-nyc.moralis.io/dc3113df767f15c67e04d1df/eth/ropsten`),
+            network_id: 3,        // Ropsten's id
+            gas: 5500000,         // Ropsten has a lower block limit than mainnet
+            confirmations: 2,     // # of confs to wait between deployments. (default: 0)
+            timeoutBlocks: 1000,   // # of blocks before a deployment times out  (minimum/default: 50)
+            skipDryRun: true      // Skip dry run before migrations? (default: false for public nets )
+        },
     },
     contracts_directory: "./src/contracts/",
     contracts_build_directory: "./src/abis/",

@@ -16,6 +16,8 @@ import MyCryptoBoys from "./MyCryptoBoys/MyCryptoBoys";
 import Queries from "./Queries/Queries";
 import MarketClose from "./MarketClose/MarketClose";
 
+import {marketplaceAddress, nftAddress} from "../../config"
+
 const ipfsClient = require("ipfs-http-client");
 const ipfs = ipfsClient({
     host: "ipfs.infura.io",

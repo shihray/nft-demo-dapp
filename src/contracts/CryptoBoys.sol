@@ -67,56 +67,46 @@ contract CryptoBoys is Ownable, ERC721Enumerable {
         string memory _tokenURI = _tokenURIs[tokenId];
         string memory base = _baseURI();
         
-        // If there is no base URI, return the token URI.
         if (bytes(base).length == 0) {
             return _tokenURI;
         }
-        // If both are set, concatenate the baseURI and tokenURI (via abi.encodePacked).
         if (bytes(_tokenURI).length > 0) {
             return string(abi.encodePacked(base, _tokenURI));
         }
-        // If there is a baseURI but no tokenURI, concatenate the tokenID to the baseURI.
         return string(abi.encodePacked(base, tokenId));
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal virtual override(ERC721Enumerable) {
+        if (totalSupply() > tokenId) claimReward(tokenId);
+        super._beforeTokenTransfer(from, to, tokenId);
     }
 
     // mint a new crypto boy
     function mintCryptoBoy(string memory _name, string memory _tokenURI, string[] calldata _colors) external payable {
-        // check if thic fucntion caller is not an zero address account
         require(msg.sender != address(0));
-        // increment counter
         cryptoBoyCounter ++;
-        // check if a token exists with the above token id => incremented counter
+
         require(!_exists(cryptoBoyCounter));
 
         require(msg.value == _price, "must send correct price");
         require(cryptoBoyCounter <= TOTAL_NFTS_COUNT, "not enough avax apes left to mint amount");
 
-        // loop through the colors passed and check if each colors already exists or not
         for(uint i=0; i<_colors.length; i++) {
             require(!colorExists[_colors[i]]);
         }
-        // check if the token URI already exists or not
         require(!tokenURIExists[_tokenURI]);
-        // check if the token name already exists or not
         require(!tokenNameExists[_name]);
 
         // mint the token
         _mint(msg.sender, cryptoBoyCounter);
-        // solidy version 0.8 is gone
-        // set token URI (bind token id with the passed in token URI)
-        // _setTokenURI(cryptoBoyCounter, _tokenURI);
         _setTokenURI(cryptoBoyCounter, _tokenURI);
 
-        // loop through the colors passed and make each of the colors as exists since the token is already minted
         for (uint i=0; i<_colors.length; i++) {
             colorExists[_colors[i]] = true;
         }
-        // make passed token URI as exists
         tokenURIExists[_tokenURI] = true;
-        // make token name passed as exists
         tokenNameExists[_name] = true;
 
-        // add the token id and it's crypto boy to all crypto boys mapping
         market.appendCryptoBoy(cryptoBoyCounter, _name, _tokenURI, msg.sender, msg.sender, address(0), _price, 0, true);
 
         lastDividendAt[cryptoBoyCounter] = totalDividend;
