@@ -25,6 +25,7 @@
     "truffle": "5.0.5",
     "truffle-contract-size": "^2.0.1",
     "truffle-flattener": "^1.5.0",
+    "truffle-hdwallet-provider": "^1.0.17",
     "web3": "1.0.0-beta.55"
   },
   "scripts": {

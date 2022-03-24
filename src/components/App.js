@@ -109,14 +109,15 @@ class App extends Component {
             this.setState({ metamaskConnected: true });
             this.setState({ loading: true });
             this.setState({ accountAddress: accounts[0] });
+
             let accountBalance = await web3.eth.getBalance(accounts[0]);
             accountBalance = web3.utils.fromWei(accountBalance, "Ether");
+            
             this.setState({ accountBalance });
             this.setState({ loading: false });
+
             const networkId = await web3.eth.net.getId();
             const networkData = CryptoBoys.networks[networkId];
-
-            console.log("networkId:" + networkId);
 
             if (networkData) {
                 this.setState({ loading: true });
@@ -150,6 +151,7 @@ class App extends Component {
 
             const marketNetworkId = await web3.eth.net.getId();
             const marketNetworkData = Marketplace.networks[marketNetworkId];
+
             if (marketNetworkData) {
                 console.log("marketplace init");
                 const marketContract = web3.eth.Contract(
