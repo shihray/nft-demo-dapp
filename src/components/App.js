@@ -16,8 +16,6 @@ import MyCryptoBoys from "./MyCryptoBoys/MyCryptoBoys";
 import Queries from "./Queries/Queries";
 import MarketClose from "./MarketClose/MarketClose";
 
-import {marketplaceAddress, nftAddress} from "../../config"
-
 const ipfsClient = require("ipfs-http-client");
 const ipfs = ipfsClient({
     host: "ipfs.infura.io",
@@ -134,18 +132,8 @@ class App extends Component {
                 const cryptoBoysCount = await cryptoBoysContract.methods
                     .cryptoBoyCounter()
                     .call();
-                this.setState({ cryptoBoysCount });
+                this.setState({ cryptoBoysCount })
 
-                let totalTokensMinted = await cryptoBoysContract.methods
-                    .getNumberOfTokensMinted()
-                    .call();
-                totalTokensMinted = totalTokensMinted.toNumber();
-                this.setState({ totalTokensMinted });
-                let totalTokensOwnedByAccount = await cryptoBoysContract.methods
-                    .getTotalNumberOfTokensOwnedByAnAddress(this.state.accountAddress)
-                    .call();
-                totalTokensOwnedByAccount = totalTokensOwnedByAccount.toNumber();
-                this.setState({ totalTokensOwnedByAccount });
                 this.setState({ loading: false });
             } else {
                 this.setState({ contractDetected: false });
@@ -163,16 +151,30 @@ class App extends Component {
                 this.setState({ marketContract: marketContract });
                 this.setState({ marketContractAddress: marketNetworkData.address });
 
+                let totalTokensMinted = await marketContract.methods
+                    .totalListings()
+                    .call();
+                totalTokensMinted = totalTokensMinted.toNumber();
+                this.setState({ totalTokensMinted });
+
+                let totalTokensOwnedByAccount = await marketContract.methods
+                    .getMyActiveListingsCount()
+                    .call();
+                totalTokensOwnedByAccount = totalTokensOwnedByAccount.toNumber();
+                this.setState({ totalTokensOwnedByAccount });
+
                 // marketOpen
                 const isOpen = await marketContract.methods.isMarketOpen().call();
                 this.setState({ isMarketOpen: isOpen });
 
-                for (var i = 1; i <= this.state.cryptoBoysCount; i++) {
-                    const cryptoBoy = await marketContract.methods.allCryptoBoys(i).call();
+                // TODO Show All nft
+                const cryptoBoyList = await marketContract.methods.getActiveListings(0, 10000).call();
+                for (var i = 0; i < cryptoBoyList.length; i++) {
                     this.setState({
-                        cryptoBoys: [...this.state.cryptoBoys, cryptoBoy],
+                        cryptoBoys: [...this.state.cryptoBoys, cryptoBoyList[i]],
                     });
                 }
+
                 console.log("marketplace init done");
             } else {
                 this.setState({ contractDetected: false });
@@ -205,96 +207,21 @@ class App extends Component {
         }
     };
 
-    mintMyNFT = async (colors, name) => {
+    mintMyNFT = async () => {
         this.setState({ loading: true });
-        const colorsArray = Object.values(colors);
-        let colorsUsed = [];
-        for (let i = 0; i < colorsArray.length; i++) {
-            if (colorsArray[i] !== "") {
-                let colorIsUsed = await this.state.cryptoBoysContract.methods
-                    .colorExists(colorsArray[i])
-                    .call();
-                if (colorIsUsed) {
-                    colorsUsed = [...colorsUsed, colorsArray[i]];
-                } else {
-                    continue;
-                }
-            }
-        }
-        const nameIsUsed = await this.state.cryptoBoysContract.methods
-            .tokenNameExists(name)
-            .call();
-        if (colorsUsed.length === 0 && !nameIsUsed) {
-            const {
-                cardBorderColor,
-                cardBackgroundColor,
-                headBorderColor,
-                headBackgroundColor,
-                leftEyeBorderColor,
-                rightEyeBorderColor,
-                leftEyeBackgroundColor,
-                rightEyeBackgroundColor,
-                leftPupilBackgroundColor,
-                rightPupilBackgroundColor,
-                mouthColor,
-                neckBackgroundColor,
-                neckBorderColor,
-                bodyBackgroundColor,
-                bodyBorderColor,
-            } = colors;
-            let previousTokenId;
-            previousTokenId = await this.state.cryptoBoysContract.methods
-                .cryptoBoyCounter()
-                .call();
-            previousTokenId = previousTokenId.toNumber();
-            const tokenId = previousTokenId + 1;
-            const tokenObject = {
-                tokenName: "Crypto Boy",
-                tokenSymbol: "CB",
-                tokenId: `${tokenId}`,
-                name: name,
-                metaData: {
-                    type: "color",
-                    colors: {
-                    cardBorderColor,
-                    cardBackgroundColor,
-                    headBorderColor,
-                    headBackgroundColor,
-                    leftEyeBorderColor,
-                    rightEyeBorderColor,
-                    leftEyeBackgroundColor,
-                    rightEyeBackgroundColor,
-                    leftPupilBackgroundColor,
-                    rightPupilBackgroundColor,
-                    mouthColor,
-                    neckBackgroundColor,
-                    neckBorderColor,
-                    bodyBackgroundColor,
-                    bodyBorderColor,
-                    },
-                },
-            };
-            const cid = await ipfs.add(JSON.stringify(tokenObject));
-            let tokenURI = `https://ipfs.infura.io/ipfs/${cid.path}`;
-            const price = window.web3.utils.toWei("0.1", "Ether");
-            this.state.cryptoBoysContract.methods
-                .mintCryptoBoy(name, tokenURI, colorsArray)
-                .send({ from: this.state.accountAddress, value: price })
-                .on("confirmation", () => {
-                    localStorage.setItem(this.state.accountAddress, new Date().getTime());
-                    this.setState({ loading: false });
-                    window.location.reload();
-                });
-        } else {
-            if (nameIsUsed) {
-                this.setState({ nameIsUsed: true });
+
+        const priceWithGwei = await this.state.cryptoBoysContract.methods.price().call();
+        const contractPrice = await window.web3.utils.fromWei(priceWithGwei.toString());
+        const price = window.web3.utils.toWei(contractPrice.toString(), "Ether");
+
+        this.state.cryptoBoysContract.methods
+            .mint()
+            .send({ from: this.state.accountAddress, value: price })
+            .on("confirmation", () => {
+                localStorage.setItem(this.state.accountAddress, new Date().getTime());
                 this.setState({ loading: false });
-            } else if (colorsUsed.length !== 0) {
-                this.setState({ colorIsUsed: true });
-                this.setState({ colorsUsed });
-                this.setState({ loading: false });
-            }
-        }
+                window.location.reload();
+            });
     };
 
     toggleForSale = (tokenId) => {

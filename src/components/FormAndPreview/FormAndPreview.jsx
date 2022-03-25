@@ -44,10 +44,7 @@ class FormAndPreview extends Component {
 
   callMintMyNFTFromApp = (e) => {
     e.preventDefault();
-    this.props.mintMyNFT(
-      this.state.userSelectedColors[0],
-      this.state.cryptoBoyName
-    );
+    this.props.mintMyNFT();
   };
 
   render() {
@@ -417,19 +414,6 @@ class FormAndPreview extends Component {
               </div>
             </div>
             <div className="col-md-6">
-              <div className="form-group">
-                <label htmlFor="cryptoBoyName">Name</label>
-                <input
-                  required
-                  type="text"
-                  value={this.state.cryptoBoyName}
-                  className="form-control"
-                  placeholder="Enter Your Crypto Boy's Name"
-                  onChange={(e) =>
-                    this.setState({ cryptoBoyName: e.target.value })
-                  }
-                />
-              </div>
               <button
                 id="mintBtn"
                 style={{ fontSize: "0.9rem", letterSpacing: "0.14rem" }}

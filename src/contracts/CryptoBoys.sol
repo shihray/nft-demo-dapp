@@ -1,150 +1,104 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.9.0;
-pragma abicoder v2;
 
-import "./Market.sol";
+import "@openzeppelin/contracts/utils/Context.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 
-// CryptoBoys smart contract inherits ERC721 interface
-contract CryptoBoys is Ownable, ERC721Enumerable {
+contract CryptoBoys is Context,  AccessControlEnumerable, ERC721Enumerable, ERC721URIStorage{
+    using Counters for Counters.Counter;
+    Counters.Counter public _tokenIdTracker;
 
-    Market public market;
-
-    // this contract's token collection name
-    string public collectionName;
-    // this contract's token symbol
-    string public collectionNameSymbol;
-    // total number of crypto boys minted
-    uint256 public cryptoBoyCounter;
-    // Base URI
-    string private _baseURIextended;
-    // Optional mapping for token URIs
-    mapping (uint256 => string) private _tokenURIs;
-
-    // check if token name exists
-    mapping(string => bool) public tokenNameExists;
-    // check if color exists
-    mapping(string => bool) public colorExists;
-    // check if token URI exists
-    mapping(string => bool) public tokenURIExists;
-
-    // avaxToken 
-    uint256 constant TOTAL_NFTS_COUNT = 10000;
+    string private _baseTokenURI;
+    uint256 private _price = 0.025 ether;
+    uint private _max;
     address private _admin;
     address private _admin2;
-    uint256 private _price = 0.1 ether;
 
     uint256 public reflectionBalance;
     uint256 public totalDividend;
     mapping (uint256 => uint256) public lastDividendAt;
+    mapping (uint256 => address ) public minter;
 
-    // initialize contract while deployment with contract's collection name and token
-    constructor(address admin, address admin2, address marketAddress) ERC721("Taiwan Crypto Collection", "TC") {
-        collectionName = name();
-        collectionNameSymbol = symbol();
-
+    constructor(string memory baseTokenURI, uint max, address admin, address admin2) ERC721("CryptoBoys Tokens", "ACT") {
+        _baseTokenURI = baseTokenURI;
+        _max = max;
         _admin = admin;
         _admin2 = admin2;
 
-        market = Market(marketAddress);
-    }
-
-    function setBaseURI(string memory baseURI_) external onlyOwner() {
-        _baseURIextended = baseURI_;
-    }
-
-    function _setTokenURI(uint256 tokenId, string memory _tokenURI) internal virtual {
-        require(_exists(tokenId), "ERC721Metadata: URI set of nonexistent token");
-        _tokenURIs[tokenId] = _tokenURI;
+        _setupRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     function _baseURI() internal view virtual override returns (string memory) {
-        return _baseURIextended;
+        return _baseTokenURI;
     }
 
-    function tokenURI(uint256 tokenId) public view virtual override returns (string memory) {
-        require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
-
-        string memory _tokenURI = _tokenURIs[tokenId];
-        string memory base = _baseURI();
-        
-        if (bytes(base).length == 0) {
-            return _tokenURI;
-        }
-        if (bytes(_tokenURI).length > 0) {
-            return string(abi.encodePacked(base, _tokenURI));
-        }
-        return string(abi.encodePacked(base, tokenId));
+    function setBaseURI(string memory baseURI) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "CryptoBoys: must have admin role to change base URI");
+        _baseTokenURI = baseURI;
     }
 
-    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal virtual override(ERC721Enumerable) {
+    function setTokenURI(uint256 tokenId, string memory _tokenURI) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "CryptoBoys: must have admin role to change token URI");
+        _setTokenURI(tokenId, _tokenURI);
+    }
+
+    function setPrice(uint mintPrice) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "CryptoBoys: must have admin role to change price");
+        _price = mintPrice;
+    }
+
+    function price() public view returns (uint256) {
+        return _price;
+    }
+
+    function cryptoBoyCounter() public view returns (uint256) {
+        return _tokenIdTracker.current();
+    }
+
+    function mint() public payable {
+
+        uint256 currIndex = _tokenIdTracker.current();
+
+        require(msg.value == _price, "CryptoBoys: must send correct price");
+        require(currIndex <= _max, "CryptoBoys: not enough avax apes left to mint amount");
+        _mint(msg.sender, currIndex);
+        minter[currIndex] = msg.sender;
+        lastDividendAt[currIndex] = totalDividend;
+        _tokenIdTracker.increment();
+        splitBalance(msg.value);
+    }
+
+    function tokenMinter(uint256 tokenId) public view returns(address){
+        return minter[tokenId];
+    }
+
+    function _burn(uint256 tokenId) internal virtual override(ERC721, ERC721URIStorage) {
+        return ERC721URIStorage._burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+        return ERC721URIStorage.tokenURI(tokenId);
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId) internal virtual override(ERC721, ERC721Enumerable) {
         if (totalSupply() > tokenId) claimReward(tokenId);
         super._beforeTokenTransfer(from, to, tokenId);
     }
 
-    // mint a new crypto boy
-    function mintCryptoBoy(string memory _name, string memory _tokenURI, string[] calldata _colors) external payable {
-        require(msg.sender != address(0));
-        cryptoBoyCounter ++;
-
-        require(!_exists(cryptoBoyCounter));
-
-        require(msg.value == _price, "must send correct price");
-        require(cryptoBoyCounter <= TOTAL_NFTS_COUNT, "not enough avax apes left to mint amount");
-
-        for(uint i=0; i<_colors.length; i++) {
-            require(!colorExists[_colors[i]]);
-        }
-        require(!tokenURIExists[_tokenURI]);
-        require(!tokenNameExists[_name]);
-
-        // mint the token
-        _mint(msg.sender, cryptoBoyCounter);
-        _setTokenURI(cryptoBoyCounter, _tokenURI);
-
-        for (uint i=0; i<_colors.length; i++) {
-            colorExists[_colors[i]] = true;
-        }
-        tokenURIExists[_tokenURI] = true;
-        tokenNameExists[_name] = true;
-
-        market.appendCryptoBoy(cryptoBoyCounter, _name, _tokenURI, msg.sender, msg.sender, address(0), _price, 0, true);
-
-        lastDividendAt[cryptoBoyCounter] = totalDividend;
-        splitBalance(msg.value);
+    /**
+    * @dev See {IERC165-supportsInterface}.
+    */
+    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControlEnumerable, ERC721, ERC721Enumerable) returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 
-    function transferToken(address from, address to, uint256 tokenId) public {
-        _transfer(from, to, tokenId);
-    }
-
-    // get owner of the token
-    function getTokenOwner(uint256 _tokenId) public view returns(address) {
-        address _tokenOwner = ownerOf(_tokenId);
-        return _tokenOwner;
-    }
-
-    // get metadata of the token
-    function getTokenMetaData(uint _tokenId) public view returns(string memory) {
-        string memory tokenMetaData = tokenURI(_tokenId);
-        return tokenMetaData;
-    }
-
-    // get total number of tokens minted so far
-    function getNumberOfTokensMinted() public view returns(uint256) {
-        uint256 totalNumberOfTokensMinted = totalSupply();
-        return totalNumberOfTokensMinted;
-    }
-
-    // get total number of tokens owned by an address
-    function getTotalNumberOfTokensOwnedByAnAddress(address _owner) public view returns(uint256) {
-        uint256 totalNumberOfTokensOwned = balanceOf(_owner);
-        return totalNumberOfTokensOwned;
-    }
-
-    // check if the token already exists
-    function getTokenExists(uint256 _tokenId) public view returns(bool) {
-        bool tokenExists = _exists(_tokenId);
-        return tokenExists;
+    function currentRate() public view returns (uint256){
+        if(totalSupply() == 0) return 0;
+        return reflectionBalance/totalSupply();
     }
 
     function claimRewards() public {
@@ -158,8 +112,18 @@ contract CryptoBoys is Ownable, ERC721Enumerable {
         payable(msg.sender).transfer(balance);
     }
 
+    function getReflectionBalances() public view returns(uint256) {
+        uint count = balanceOf(msg.sender);
+        uint256 total = 0;
+        for(uint i=0; i < count; i++){
+            uint tokenId = tokenOfOwnerByIndex(msg.sender, i);
+            total += getReflectionBalance(tokenId);
+        }
+        return total;
+    }
+
     function claimReward(uint256 tokenId) public {
-        require(ownerOf(tokenId) == _msgSender() || getApproved(tokenId) == _msgSender(), "AvaxCoke: Only owner or approved can claim rewards");
+        require(ownerOf(tokenId) == _msgSender() || getApproved(tokenId) == _msgSender(), "CryptoBoys: Only owner or approved can claim rewards");
         uint256 balance = getReflectionBalance(tokenId);
         payable(ownerOf(tokenId)).transfer(balance);
         lastDividendAt[tokenId] = totalDividend;

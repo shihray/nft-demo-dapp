@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.9.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "./CryptoBoys.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Metadata.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+abstract contract IERC721Full is IERC721, IERC721Enumerable, IERC721Metadata {}
 
 interface IERC2981Royalties {
     function royaltyInfo(uint256 _tokenId, uint256 _value)
@@ -12,48 +15,64 @@ interface IERC2981Royalties {
         returns (address _receiver, uint256 _royaltyAmount);
 }
 
-contract Market is ERC721Enumerable, Ownable {
-
+contract Market is Ownable {
+    IERC721Full nftContract;
     IERC2981Royalties royaltyInterface;
 
-    // this contract's token collection name & symbol
-    string public collectionName;
-    string public collectionNameSymbol;
-    
     uint256 constant TOTAL_NFTS_COUNT = 10000;
-    uint256 public communityFeePercent = 1;
-    uint256 public marketFeePercent = 3;
-    uint256 public cryptoBoyCounter = 0;
-    uint256 public communityHoldings = 0;
-    uint256 public totalGivenRewardsPerToken = 0;
-    mapping (uint256 => uint256) public communityRewards;
 
-    // map cryptoboy's token id to crypto boy
-    mapping(uint256 => CryptoBoy) public allCryptoBoys;
-
-    struct CryptoBoy {
+    struct Listing {
+        bool active;
+        uint256 id;
         uint256 tokenId;
-        string tokenName;
-        string tokenURI;
-        address mintedBy;
-        address currentOwner;
-        address previousOwner;
         uint256 price;
-        uint256 numberOfTransfers;
-        bool forSale;
+        uint256 activeIndex; // index where the listing id is located on activeListings
+        uint256 userActiveIndex; // index where the listing id is located on userActiveListings
+        address owner;
+        string tokenURI;
     }
-    // Feature
-    bool public isMarketOpen = true;
+
+    struct Purchase {
+        Listing listing;
+        address buyer;
+    }
+
+    event AddedListing(Listing listing);
+    event UpdateListing(Listing listing);
+    event FilledListing(Purchase listing);
+    event CanceledListing(Listing listing);
+
+    Listing[] public listings;
+    uint256[] public activeListings; // list of listingIDs which are active
+    mapping(address => uint256[]) public userActiveListings; // list of listingIDs which are active
+
+    mapping(uint256 => uint256) public communityRewards;
+
+    uint256 public communityHoldings = 0;
+    uint256 public communityFeePercent = 0;
+    uint256 public marketFeePercent = 0;
+
+    uint256 public totalVolume = 0;
+    uint256 public totalSales = 0;
+    uint256 public highestSalePrice = 0;
+    uint256 public totalGivenRewardsPerToken = 0;
+
+    bool public isMarketOpen = false;
     bool public emergencyDelisting = false;
-    string public nftAddress;
 
-    // initialize contract while deployment with contract's collection name and token
-    constructor(address _nftAddress) ERC721("Taiwan Crypto Market", "TCM") {
-        collectionName = name();
-        collectionNameSymbol = symbol();
+    constructor(
+        address nft_address,
+        uint256 dist_fee,
+        uint256 market_fee
+    ) {
+        require(dist_fee <= 100, "Give a percentage value from 0 to 100");
+        require(market_fee <= 100, "Give a percentage value from 0 to 100");
 
-        royaltyInterface = IERC2981Royalties(address(this));
-        nftAddress = _nftAddress;
+        nftContract = IERC721Full(nft_address);
+        royaltyInterface = IERC2981Royalties(nft_address);
+
+        communityFeePercent = dist_fee;
+        marketFeePercent = market_fee;
     }
 
     function openMarket() external onlyOwner {
@@ -68,125 +87,203 @@ contract Market is ERC721Enumerable, Ownable {
         emergencyDelisting = true;
     }
 
-    function adjustFees(uint256 newDistFee, uint256 newMarketFee) external onlyOwner {
-        require(newDistFee <= 100, "Give a percentage value from 0 to 100");
-        require(newMarketFee <= 100, "Give a percentage value from 0 to 100");
-
-        communityFeePercent = newDistFee;
-        marketFeePercent = newMarketFee;
+    function totalListings() external view returns (uint256) {
+        return listings.length;
     }
 
-    function emergencyDelist(address nftAddr, uint256 _tokenId) external {
-        require(emergencyDelisting && !isMarketOpen, "Only in emergency.");
-        require(_tokenId <= cryptoBoyCounter, "Invalid CryptoBoy");
-
-        CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
-
-        CryptoBoys(nftAddr).transferFrom(address(this), cryptoboy.currentOwner, cryptoboy.tokenId);
+    function totalActiveListings() external view returns (uint256) {
+        return activeListings.length;
     }
 
-    // NFT
-    function appendCryptoBoy(
-        uint256 tokenId,
-        string memory name,
-        string memory uri,
-        address mintedBy,
-        address currOwner,
-        address prevOwner,
-        uint256 price,
-        uint256 numOfTransfers,
-        bool forSale
-    ) public {
+    function getActiveListings(uint256 from, uint256 length)
+        external
+        view
+        returns (Listing[] memory listing)
+    {
+        uint256 numActive = activeListings.length;
+        if (from + length > numActive) {
+            length = numActive - from;
+        }
+
+        Listing[] memory _listings = new Listing[](length);
+        for (uint256 i = 0; i < length; i++) {
+            Listing memory _l = listings[activeListings[from + i]];
+            _l.tokenURI = nftContract.tokenURI(_l.tokenId);
+            _listings[i] = _l;
+        }
+        return _listings;
+    }
+
+    function removeActiveListing(uint256 index) internal {
+        uint256 numActive = activeListings.length;
+
+        require(numActive > 0, "There are no active listings");
+        require(index < numActive, "Incorrect index");
+
+        activeListings[index] = activeListings[numActive - 1];
+        listings[activeListings[index]].activeIndex = index;
+        activeListings.pop();
+    }
+
+    function removeOwnerActiveListing(address owner, uint256 index) internal {
+        uint256 numActive = userActiveListings[owner].length;
+
+        require(numActive > 0, "There are no active listings for this user.");
+        require(index < numActive, "Incorrect index");
+
+        userActiveListings[owner][index] = userActiveListings[owner][
+            numActive - 1
+        ];
+        listings[userActiveListings[owner][index]].userActiveIndex = index;
+        userActiveListings[owner].pop();
+    }
+
+    function getMyActiveListingsCount() external view returns (uint256) {
+        return userActiveListings[msg.sender].length;
+    }
+
+    function getMyActiveListings(uint256 from, uint256 length)
+        external
+        view
+        returns (Listing[] memory listing)
+    {
+        uint256 numActive = userActiveListings[msg.sender].length;
+
+        if (from + length > numActive) {
+            length = numActive - from;
+        }
+
+        Listing[] memory myListings = new Listing[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            Listing memory _l = listings[
+                userActiveListings[msg.sender][i + from]
+            ];
+            _l.tokenURI = nftContract.tokenURI(_l.tokenId);
+            myListings[i] = _l;
+        }
+        return myListings;
+    }
+
+    function addListing(uint256 tokenId, uint256 price) external {
         require(isMarketOpen, "Market is closed.");
-        CryptoBoy memory newCryptoBoy = CryptoBoy(tokenId, name, uri, mintedBy, currOwner, prevOwner, price, numOfTransfers, forSale);
+        require(
+            tokenId < TOTAL_NFTS_COUNT,
+            "Honorary APAs are not accepted in the marketplace"
+        );
+        require(msg.sender == nftContract.ownerOf(tokenId), "Invalid owner");
 
-        allCryptoBoys[tokenId] = newCryptoBoy;
+        uint256 id = listings.length;
+        Listing memory listing = Listing(
+            true,
+            id,
+            tokenId,
+            price,
+            activeListings.length, // activeIndex
+            userActiveListings[msg.sender].length, // userActiveIndex
+            msg.sender,
+            ""
+        );
 
-        cryptoBoyCounter = tokenId;
+        listings.push(listing);
+        userActiveListings[msg.sender].push(id);
+        activeListings.push(id);
+
+        emit AddedListing(listing);
+
+        nftContract.transferFrom(msg.sender, address(this), tokenId);
     }
 
-    // by a token by passing in the token's id
-    function buyToken(uint256 _tokenId) public payable {
-        require(isMarketOpen, "Market is closed.");
-        require(msg.sender != address(0));
-        // require(_exists(_tokenId));
-        
-        CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
+    function updateListing(uint256 id, uint256 price) external {
+        require(id < listings.length, "Invalid Listing");
+        require(listings[id].active, "Listing no longer active");
+        require(listings[id].owner == msg.sender, "Invalid Owner");
 
-        address tokenOwner = cryptoboy.currentOwner;
-        require(tokenOwner != address(0));
-        require(tokenOwner != msg.sender);
+        listings[id].price = price;
+        emit UpdateListing(listings[id]);
+    }
 
-        require(msg.value >= cryptoboy.price, "Price Err");
-        require(cryptoboy.forSale, "Not ForSale Err");
+    function cancelListing(uint256 id) external {
+        require(id < listings.length, "Invalid Listing");
+        Listing memory listing = listings[id];
+        require(listing.active, "Listing no longer active");
+        require(listing.owner == msg.sender, "Invalid Owner");
 
-        (address originalMinter, uint256 royaltyAmount) = royaltyInterface.royaltyInfo(_tokenId, cryptoboy.price);
-        uint256 community_cut = (cryptoboy.price * communityFeePercent) / 100;
-        uint256 market_cut = (cryptoboy.price * marketFeePercent) / 100;
-        uint256 holder_cut = cryptoboy.price - royaltyAmount - community_cut - market_cut;
+        removeActiveListing(listing.activeIndex);
+        removeOwnerActiveListing(msg.sender, listing.userActiveIndex);
 
-        // _transfer(tokenOwner, msg.sender, _tokenId);
-        CryptoBoys(nftAddress).transferToken(tokenOwner, msg.sender, _tokenId);
+        listings[id].active = false;
 
-        address sendTo = cryptoboy.currentOwner;
-        // payable(sendTo).transfer(msg.value);
-        cryptoboy.previousOwner = cryptoboy.currentOwner;
-        cryptoboy.currentOwner = msg.sender;
-        cryptoboy.numberOfTransfers += 1;
-        allCryptoBoys[_tokenId] = cryptoboy;
+        emit CanceledListing(listing);
+
+        nftContract.transferFrom(address(this), listing.owner, listing.tokenId);
+    }
+
+    function fulfillListing(uint256 id) external payable {
+        require(id < listings.length, "Invalid Listing");
+        Listing memory listing = listings[id];
+        require(listing.active, "Listing no longer active");
+        require(msg.value >= listing.price, "Value Insufficient");
+        require(msg.sender != listing.owner, "Owner cannot buy own listing");
+
+        (address originalMinter, uint256 royaltyAmount) = royaltyInterface
+            .royaltyInfo(listing.tokenId, listing.price);
+        uint256 community_cut = (listing.price * communityFeePercent) / 100;
+        uint256 market_cut = (listing.price * marketFeePercent) / 100;
+        uint256 holder_cut = listing.price -
+            royaltyAmount -
+            community_cut -
+            market_cut;
+
+        listings[id].active = false;
+
+        // Update active listings
+        removeActiveListing(listing.activeIndex);
+        removeOwnerActiveListing(listing.owner, listing.userActiveIndex);
+
+        // Update global stats
+        totalVolume += listing.price;
+        totalSales += 1;
+
+        if (listing.price > highestSalePrice) {
+            highestSalePrice = listing.price;
+        }
 
         uint256 perToken = community_cut / TOTAL_NFTS_COUNT;
         totalGivenRewardsPerToken += perToken;
         communityHoldings += perToken * TOTAL_NFTS_COUNT;
 
-        payable(sendTo).transfer(holder_cut);    
+        emit FilledListing(
+            Purchase({listing: listings[id], buyer: msg.sender})
+        );
+
+        payable(listing.owner).transfer(holder_cut);
         payable(originalMinter).transfer(royaltyAmount);
-    }
-
-    function changeTokenPrice(uint256 _tokenId, uint256 _newPrice) public {
-        require(isMarketOpen, "Market is closed.");
-        require(msg.sender != address(0));
-
-        CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
-
-        require(cryptoboy.currentOwner == msg.sender);
-        cryptoboy.price = _newPrice;
-        allCryptoBoys[_tokenId] = cryptoboy;
-    }
-
-    // switch between set for sale and set not for sale
-    function toggleForSale(uint256 _tokenId) public {
-        require(isMarketOpen, "Market is closed.");
-        require(msg.sender != address(0));
-        // require(_exists(_tokenId));
-
-        CryptoBoy memory cryptoboy = allCryptoBoys[_tokenId];
-
-        address tokenOwner = cryptoboy.currentOwner;
-        require(tokenOwner == msg.sender);
-        
-        if(cryptoboy.forSale) {
-            cryptoboy.forSale = false;
-        } else {
-            cryptoboy.forSale = true;
-        }
-        
-        allCryptoBoys[_tokenId] = cryptoboy;
+        nftContract.transferFrom(address(this), msg.sender, listing.tokenId);
     }
 
     function getRewards() external view returns (uint256 amount) {
+        uint256 numTokens = nftContract.balanceOf(msg.sender);
         uint256 rewards = 0;
 
         // Rewards of tokens owned by the sender
-        for (uint256 i = 0; i <= cryptoBoyCounter; i++) {
-            // uint256 tokenId = tokenOfOwnerByIndex(msg.sender, i);
+        for (uint256 i = 0; i < numTokens; i++) {
+            uint256 tokenId = nftContract.tokenOfOwnerByIndex(msg.sender, i);
+            if (tokenId < TOTAL_NFTS_COUNT) {
+                rewards +=
+                    totalGivenRewardsPerToken -
+                    communityRewards[tokenId];
+            }
+        }
 
-            CryptoBoy memory cryptoboy = allCryptoBoys[i];
-
-            address tokenOwner = ownerOf(cryptoboy.tokenId);
-
-            if ( tokenOwner == msg.sender) {
-                rewards += totalGivenRewardsPerToken - communityRewards[cryptoboy.tokenId];
+        // Rewards of tokens owned by the sender, but listed on this marketplace
+        uint256[] memory myListings = userActiveListings[msg.sender];
+        for (uint256 i = 0; i < myListings.length; i++) {
+            uint256 tokenId = listings[myListings[i]].tokenId;
+            if (tokenId < TOTAL_NFTS_COUNT) {
+                rewards +=
+                    totalGivenRewardsPerToken -
+                    communityRewards[tokenId];
             }
         }
 
@@ -220,7 +317,6 @@ contract Market is ERC721Enumerable, Ownable {
     }
 
     function claimOwnedRewards(uint256 from, uint256 length) external {
-        // CryptoBoys(nftAddress).
         uint256 numTokens = nftContract.balanceOf(msg.sender);
         require(from + length <= numTokens, "Out of index");
 
@@ -279,6 +375,25 @@ contract Market is ERC721Enumerable, Ownable {
         communityHoldings = newCommunityHoldings;
 
         payable(msg.sender).transfer(rewards);
+    }
+
+    function adjustFees(uint256 newDistFee, uint256 newMarketFee)
+        external
+        onlyOwner
+    {
+        require(newDistFee <= 100, "Give a percentage value from 0 to 100");
+        require(newMarketFee <= 100, "Give a percentage value from 0 to 100");
+
+        communityFeePercent = newDistFee;
+        marketFeePercent = newMarketFee;
+    }
+
+    function emergencyDelist(uint256 listingID) external {
+        require(emergencyDelisting && !isMarketOpen, "Only in emergency.");
+        require(listingID < listings.length, "Invalid Listing");
+        Listing memory listing = listings[listingID];
+
+        nftContract.transferFrom(address(this), listing.owner, listing.tokenId);
     }
 
     function withdrawableBalance() public view returns (uint256 value) {
